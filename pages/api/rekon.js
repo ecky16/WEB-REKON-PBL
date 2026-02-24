@@ -1,5 +1,7 @@
 import formidable from 'formidable';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import path from 'path';
+import fs from 'fs';
 
 export const config = {
   api: { bodyParser: false },
@@ -8,24 +10,23 @@ export const config = {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
-  const form = formidable({});
+  const form = formidable({ keepExtensions: true, uploadDir: '/tmp' });
 
   return new Promise((resolve) => {
     form.parse(req, async (err, fields, files) => {
+      const fileMitra = Array.isArray(files.fileMitra) ? files.fileMitra[0] : files.fileMitra;
+      
       try {
-        const fileMitra = Array.isArray(files.fileMitra) ? files.fileMitra[0] : files.fileMitra;
-        
-        // 1. BACA MITRA
-        const wbMitra = XLSX.readFile(fileMitra.filepath || fileMitra.path);
-        const wsMitra = wbMitra.Sheets[wbMitra.SheetNames[0]];
-        const dataMitra = XLSX.utils.sheet_to_json(wsMitra, { header: 1 });
-        
         const dataVolume = new Map();
-        dataMitra.forEach((row, idx) => {
-          if (idx > 7) {
-            const mat = (row[2] || "").toString().trim();
-            const jas = (row[3] || "").toString().trim();
-            const vol = parseFloat(row[8]) || 0;
+        
+        // 1. Baca Mitra (Stream agar hemat RAM)
+        const workbookMitra = new ExcelJS.Workbook();
+        await workbookMitra.xlsx.readFile(fileMitra.filepath || fileMitra.path);
+        workbookMitra.worksheets[0].eachRow((row, rowNumber) => {
+          if (rowNumber > 7) {
+            const mat = row.getCell(3).text.trim();
+            const jas = row.getCell(4).text.trim();
+            const vol = parseFloat(row.getCell(9).value) || 0;
             if (vol > 0) {
               if (mat.startsWith('M-')) dataVolume.set(mat, vol);
               if (jas.startsWith('J-')) dataVolume.set(jas, vol);
@@ -33,44 +34,49 @@ export default async function handler(req, res) {
           }
         });
 
-        // 2. BACA MASTER TELKOM
-        const path = require('path');
+        // 2. Buka Master Telkom
         const filePathTelkom = path.join(process.cwd(), 'public', 'data', 'BOQ Telkom.xlsx');
-        
-        // Kita gunakan cellStyles: true agar style asli (Kuning/Merah) tetap terbawa
-        const wbTelkom = XLSX.readFile(filePathTelkom, { cellStyles: true, cellNF: true, cellDates: true });
-        const wsTelkom = wbTelkom.Sheets[wbTelkom.SheetNames[0]];
+        const workbookTelkom = new ExcelJS.Workbook();
+        await workbookTelkom.xlsx.readFile(filePathTelkom);
+        const outSheet = workbookTelkom.worksheets[0];
 
-        // 3. UPDATE VOLUME (G)
-        // Mapping Baris 9 (Index 8) sampai Baris 1082 (Index 1081)
-        for (let R = 8; R <= 1081; ++R) {
-          const cellDesignator = wsTelkom[XLSX.utils.encode_cell({ r: R, c: 1 })]; // Kolom B
-          if (!cellDesignator) continue;
+        // 3. Update Volume & PERTAHANKAN STYLE (Warna/Border)
+        outSheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+          // Matikan Wrap Text tapi pertahankan Fill (Warna) dan Border
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            if (cell.alignment) {
+              cell.alignment = { ...cell.alignment, wrapText: false };
+            } else {
+              cell.alignment = { wrapText: false };
+            }
+          });
 
-          const des = cellDesignator.v.toString().trim();
-          
-          // Hanya isi jika M- atau J- sesuai request Mas Ecky
-          if ((des.startsWith('M-') || des.startsWith('J-')) && dataVolume.has(des)) {
-            const addrVol = XLSX.utils.encode_cell({ r: R, c: 6 }); // Kolom G
-            
-            // Masukkan nilai sambil mempertahankan format sel yang ada
-            if(!wsTelkom[addrVol]) wsTelkom[addrVol] = { t: 'n' };
-            wsTelkom[addrVol].v = dataVolume.get(des);
-            wsTelkom[addrVol].t = 'n';
+          // Logika Isi Volume
+          if (rowNumber >= 9 && rowNumber <= 1082) {
+            const designatorTelkom = row.getCell(2).text.trim();
+            if ((designatorTelkom.startsWith('M-') || designatorTelkom.startsWith('J-')) && 
+                dataVolume.has(designatorTelkom)) {
+              
+              const targetCell = row.getCell(7); // Kolom G
+              targetCell.value = dataVolume.get(designatorTelkom);
+              // Kita tidak menyentuh cell.style agar warna kuning/merah bawaan template tetap ada
+            }
           }
-        }
+        });
 
-        // 4. GENERATE DAN KIRIM
-        // 'cellStyles: true' sangat penting disini agar warna header tidak hilang
-        const buf = XLSX.write(wbTelkom, { type: 'buffer', bookType: 'xlsx', cellStyles: true });
+        // 4. Kirim Hasil
+        const buffer = await workbookTelkom.xlsx.writeBuffer();
         
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', 'attachment; filename=HASIL_REKON_TELKOM_RAPI.xlsx');
-        res.status(200).send(buf);
+        res.setHeader('Content-Disposition', 'attachment; filename=HASIL_REKON_BERWARNA.xlsx');
+        res.status(200).send(buffer);
+
+        // Hapus file temp
+        if (fs.existsSync(fileMitra.filepath)) fs.unlinkSync(fileMitra.filepath);
         resolve();
 
       } catch (error) {
-        console.error("ERROR:", error.message);
+        console.error("Error:", error.message);
         res.status(500).json({ error: error.message });
         resolve();
       }
