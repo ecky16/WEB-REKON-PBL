@@ -7,10 +7,10 @@
     "start": "next start"
   },
   "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "exceljs": "^4.4.0",
-    "formidable": "^3.5.1"
+    "next": "13.4.12",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "exceljs": "4.3.0",
+    "formidable": "2.1.1"
   }
 }
