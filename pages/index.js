@@ -33,8 +33,8 @@ export default function Home() {
 
   return (
     <div style={{ padding: '50px', fontFamily: 'sans-serif', textAlign: 'center' }}>
-      <h1>🚀 Gebrakan Rekon PBL</h1>
-      <p>Upload file Mitra (.xlsx) untuk diconvert ke Template Telkom</p>
+      <h1>🚀 ANJAY BOQ MITRA TO TELKOM</h1>
+      <p>Upload BOQ Mitra (.xlsx) untuk diconvert ke BOQ Telkom</p>
       <form onSubmit={handleUpload} style={{ marginTop: '30px' }}>
         <input type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files[0])} />
         <br /><br />
