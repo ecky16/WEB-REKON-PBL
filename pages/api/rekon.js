@@ -17,45 +17,42 @@ export default async function handler(req, res) {
       try {
         const fileMitra = Array.isArray(files.fileMitra) ? files.fileMitra[0] : files.fileMitra;
         
-        // 1. BACA DATA MITRA (Format Baru 2026)
+        // 1. BACA DATA MITRA (Kembali ke Logika Asli yang Sukses)
         const wbMitra = XLSX.readFile(fileMitra.filepath || fileMitra.path);
         const wsMitra = wbMitra.Sheets[wbMitra.SheetNames[0]];
         const dataMitra = XLSX.utils.sheet_to_json(wsMitra, { header: 1 });
         
         const dataVolume = new Map();
         dataMitra.forEach((row, idx) => {
-          // Data biasanya mulai stabil di baris ke-9 (index 8)
-          if (idx >= 8) {
-            const designator = (row[1] || "").toString().trim(); // Kolom B (Designator)
-            const vol = parseFloat(row[6]) || 0; // Kolom G (Volume)
+          if (idx > 7) {
+            // Kolom C (Material), Kolom D (Jasa), Kolom I (Volume)
+            const mat = (row[2] || "").toString().trim(); 
+            const jas = (row[3] || "").toString().trim(); 
+            const vol = parseFloat(row[8]) || 0; 
 
-            if (vol > 0 && (designator.startsWith('M-') || designator.startsWith('J-'))) {
-              dataVolume.set(designator, vol);
+            if (vol > 0) {
+              if (mat.startsWith('M-')) dataVolume.set(mat, vol);
+              if (jas.startsWith('J-')) dataVolume.set(jas, vol);
             }
           }
         });
 
-        // 2. BACA MASTER TELKOM (File yang Mas simpan di public/data)
+        // 2. BACA MASTER TELKOM 2026
         const filePathTelkom = path.join(process.cwd(), 'public', 'data', 'BOQ Telkom.xlsx');
-        
-        // Cek apakah file Master sudah Mas update ke versi 2026 di GitHub
-        if (!fs.existsSync(filePathTelkom)) {
-            throw new Error("File Master BOQ Telkom.xlsx tidak ditemukan di public/data");
-        }
-
         const wbTelkom = XLSX.readFile(filePathTelkom);
         const wsTelkom = wbTelkom.Sheets[wbTelkom.SheetNames[0]];
 
-        // 3. UPDATE VOLUME KE MASTER
+        // 3. UPDATE VOLUME KE MASTER 2026
         const range = XLSX.utils.decode_range(wsTelkom['!ref']);
-        for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let R = 8; R <= range.e.r; ++R) { // Mulai dari baris 9
           const cellAddr = XLSX.utils.encode_cell({ r: R, c: 1 }); // Kolom B di Master
           if (!wsTelkom[cellAddr]) continue;
 
           const desMaster = wsTelkom[cellAddr].v.toString().trim();
           
-          if (dataVolume.has(desMaster)) {
-            const cellVolAddr = XLSX.utils.encode_cell({ r: R, c: 6 }); // Kolom G di Master
+          // Hanya isi ke Master jika Designatornya ada di file Mitra
+          if ((desMaster.startsWith('M-') || desMaster.startsWith('J-')) && dataVolume.has(desMaster)) {
+            const cellVolAddr = XLSX.utils.encode_cell({ r: R, c: 6 }); // Kolom G (Volume) di Master
             wsTelkom[cellVolAddr] = { t: 'n', v: dataVolume.get(desMaster) };
           }
         }
