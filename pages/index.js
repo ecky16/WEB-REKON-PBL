@@ -14,8 +14,8 @@ export default function Home() {
   const fileInputRef = useRef(null);
 
   // 🔐 SETTING USERNAME DAN PASSWORD DI SINI
-  const VALID_USER = "admin";
-  const VALID_PASS = "pbl2026";
+  const VALID_USER = "ecky";
+  const VALID_PASS = "anjay";
 
   // --- FUNGSI LOGIN ---
   const handleLogin = (e) => {
